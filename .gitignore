@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+.DS_Store
+
+# data : on ignore tout sauf download.py et splits/
+data/*
+!data/download.py
+!data/splits/
+!data/splits/**
+
+# artefacts lourds (dans outputs/)
+outputs/checkpoints/
+outputs/logits/
+outputs/logs/
+*.pt
+*.pth
+*.npy
+
+
+.env
