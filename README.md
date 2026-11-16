@@ -42,15 +42,20 @@ pip install -r requirements.txt
 
 - [x] Structure du projet
 - [ ] Splits
-- [ ] Protocole figé
+- [ ] Protocole figé (sigma_levels fixés après le pilote)
 - [ ] Dataset et entraînement (seeds 0, 1, 2)
 - [ ] Extraction des logits
+- [ ] Métriques
 - [ ] Pilote du bruit (sigma) sur val
-- [ ] Métriques et temperature scaling
+- [ ] Temperature scaling
 - [ ] Prédiction conforme (LAC, APS, marginale, par classe)
 - [ ] Expérience principale : ID, bruit d'acquisition, nouveau centre
 - [ ] Décalage : sous-population rare
 - [ ] Décalage : déséquilibre de prévalence
+- [ ] MC-Dropout
+- [ ] Ensembles
+- [ ] Ablations
+- [ ] Analyse des erreurs et figures
 - [ ] Article
 
 ## Équipe
