@@ -1,0 +1,368 @@
+{
+  "seed": 0,
+  "best_val_loss": 0.7043040844924113,
+  "meta": {
+    "device": "Tesla T4",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "python": "3.13.16",
+    "platform": "Linux-6.6.159+-x86_64-with-glibc2.39",
+    "dataset_revision": "d1457caea44f57dfe855bcf67e2ec09bb06781e9",
+    "smoke": false,
+    "num_workers": 2,
+    "git_commit": "79047a65a050894be9295ad33b2e90b68ac9edff",
+    "git_dirty": true
+  },
+  "config": {
+    "dataset": {
+      "name": "flwrlabs/fed-isic2019",
+      "hf_split": "train",
+      "revision": "d1457caea44f57dfe855bcf67e2ec09bb06781e9",
+      "n_images": 18597,
+      "n_classes": 8,
+      "center_counts": {
+        "0": 9930,
+        "1": 3163,
+        "2": 2691,
+        "3": 1807,
+        "4": 655,
+        "5": 351
+      }
+    },
+    "splits": {
+      "main_ood_center": 3,
+      "seed": 0,
+      "file": "data/splits/splits_ood3_seed0.json",
+      "source_centers": {
+        "train": 0.65,
+        "val": 0.1,
+        "calib": 0.15,
+        "test_id": 0.1
+      },
+      "ood_center": {
+        "ood_calib_pool": 0.2,
+        "test_ood": 0.8
+      },
+      "stratification": {
+        "ood_center": "label",
+        "source_first_split": "centre_label",
+        "source_other_splits": "label"
+      },
+      "realized_sizes": {
+        "train": 10913,
+        "val": 1679,
+        "calib": 2518,
+        "test_id": 1680,
+        "ood_calib_pool": 361,
+        "test_ood": 1446
+      }
+    },
+    "known_limits": [
+      "Classes rares (5, 6) : tres peu d'echantillons dans calib, test_id et test_ood.",
+      "ood_calib_pool : classe 6 = 1 image, classe 5 = 4, classe 3 = 17, classe 7 = 29.",
+      "Conformal par classe impossible sur ood_calib_pool : repli sur quantile global.",
+      "Metriques par classe pour les classes 5 et 6 sur test_ood : indicatives seulement.",
+      "Prevalence shift par reechantillonnage avec remise : les classes rares de test_id (5 : 16, 6 : 20 images) sont dupliquees, variance elevee.",
+      "Sous-population par centre : centres 4 et 5 peu representes dans test_id, intervalles larges."
+    ],
+    "seeds": {
+      "training": [
+        0,
+        1,
+        2
+      ]
+    },
+    "usage": {
+      "train": "entrainement du modele",
+      "val": "early stopping, choix d'hyperparametres, temperature scaling, pilote du bruit",
+      "calib": "calibration conforme ID",
+      "test_id": "evaluation ID, utilise une seule fois",
+      "ood_calib_pool": "calibration conforme avec quelques exemples OOD",
+      "test_ood": "evaluation OOD, utilise une seule fois",
+      "rule": "Aucun reglage d'hyperparametre sur test_id ni test_ood.",
+      "shifts_rule": "Tous les decalages (bruit, sous-population, prevalence) sont calcules a partir du meme run final, sans re-entrainement ni recalibration."
+    },
+    "model": {
+      "backbone": "resnet50",
+      "pretrained": "imagenet",
+      "dropout": 0.3,
+      "image_size": 224,
+      "normalization": "imagenet"
+    },
+    "training": {
+      "optimizer": "adamw",
+      "lr": 0.0003,
+      "weight_decay": 0.0001,
+      "batch_size": 64,
+      "max_epochs": 30,
+      "scheduler": "cosine",
+      "loss": "cross_entropy",
+      "class_weighting": false,
+      "augmentation_train": [
+        "random_resized_crop",
+        "horizontal_flip",
+        "vertical_flip",
+        "color_jitter_light"
+      ],
+      "augmentation_eval": [
+        "resize",
+        "center_crop"
+      ],
+      "early_stopping": {
+        "monitor": "val_loss",
+        "patience": 5
+      },
+      "mixed_precision": true
+    },
+    "methods": {
+      "baseline": "split conformal marginal (LAC), calibre sur calib (ID)",
+      "mc_dropout": {
+        "n_passes": 20
+      },
+      "ensemble": {
+        "size": 3
+      },
+      "temperature_scaling": true
+    },
+    "conformal": {
+      "alpha_main": 0.1,
+      "alpha_sensitivity": [
+        0.05,
+        0.2
+      ],
+      "scores": [
+        "lac",
+        "aps"
+      ],
+      "conditioning": [
+        "marginal",
+        "class_conditional"
+      ],
+      "class_conditional_min_samples": 20,
+      "calibration_sources": {
+        "id": "calib",
+        "ood_few_shot": "ood_calib_pool",
+        "mixed": "calib + ood_calib_pool"
+      },
+      "abstention": {
+        "rule": "abstention si taille de l'ensemble de prediction != 1",
+        "selective_threshold_grid": 50
+      }
+    },
+    "shift_simulation": {
+      "acquisition_noise": {
+        "type": "gaussian",
+        "applied_to": "test_id",
+        "unit": "ecart-type sur l'image en [0,1], AVANT normalisation ImageNet",
+        "noise_seed": "derivee de l'indice de l'image (bruit deterministe, identique pour toutes les methodes)",
+        "pilot": {
+          "split": "val",
+          "sigma_grid": [
+            0.005,
+            0.01,
+            0.02,
+            0.03,
+            0.05,
+            0.08
+          ],
+          "model": "modele entraine, seed 0"
+        },
+        "selection_rule": "pour chaque niveau, prendre le sigma de la grille dont la chute d'accuracy sur val est la plus proche de la cible",
+        "target_accuracy_drop_points": {
+          "leger": 2,
+          "moyen": 5,
+          "fort": 10
+        },
+        "sigma_levels": null
+      },
+      "subpopulation": {
+        "applied_to": "test_id",
+        "method": "evaluation conditionnelle au sous-groupe (pas de reechantillonnage), calibration inchangee",
+        "by_center": {
+          "groups": [
+            0,
+            1,
+            2,
+            4,
+            5
+          ],
+          "rare_centers": [
+            4,
+            5
+          ]
+        },
+        "by_class": {
+          "rare_classes": [
+            3,
+            5,
+            6,
+            7
+          ]
+        },
+        "min_samples_report": 30,
+        "report": [
+          "coverage",
+          "mean_set_size",
+          "singleton_rate"
+        ]
+      },
+      "prevalence_shift": {
+        "applied_to": "test_id",
+        "method": "reechantillonnage pondere avec remise de test_id",
+        "scenarios": {
+          "uniform": "prevalence egale pour les 8 classes",
+          "inverse": "probabilite proportionnelle a 1 / prevalence dans calib",
+          "rare_boost": "poids x5 sur les classes rares [3, 5, 6, 7], puis renormalisation"
+        },
+        "n_draws": 200,
+        "draw_size": 1680,
+        "resampling_seed": 0,
+        "calibration": "inchangee (calib ID) ; marginal et class_conditional compares",
+        "report": "moyenne et ecart-type sur les tirages et sur les seeds d'entrainement"
+      }
+    },
+    "metrics": [
+      "empirical_coverage",
+      "mean_set_size",
+      "singleton_rate",
+      "selective_risk",
+      "risk_coverage_curve",
+      "ece",
+      "coverage_per_class",
+      "accuracy_macro_f1"
+    ],
+    "ablations": [
+      "sans_temperature_scaling",
+      "lac_vs_aps",
+      "marginal_vs_class_conditional",
+      "calibration_id_vs_ood_vs_mixed",
+      {
+        "taille_ood_calib_pool": [
+          0,
+          50,
+          100,
+          361
+        ]
+      },
+      "avec_vs_sans_class_weighting"
+    ],
+    "compute": {
+      "hardware": "Colab T4",
+      "determinism": "torch.manual_seed, numpy seed, cudnn.deterministic=True"
+    }
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.9921742546004554,
+      "val_loss": 0.9210921523825195,
+      "val_acc": 0.6765932102441929,
+      "val_macro_f1": 0.35198168290000476,
+      "time_s": 100.9
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.845799410445852,
+      "val_loss": 0.9191994347552447,
+      "val_acc": 0.6765932102441929,
+      "val_macro_f1": 0.3992688653242679,
+      "time_s": 96.2
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.7753027402370428,
+      "val_loss": 0.867473364799345,
+      "val_acc": 0.687909469922573,
+      "val_macro_f1": 0.4838083717012893,
+      "time_s": 95.8
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.7241699788000847,
+      "val_loss": 0.7570908337636246,
+      "val_acc": 0.7200714711137582,
+      "val_macro_f1": 0.4668314158645753,
+      "time_s": 99.4
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.6943274812815028,
+      "val_loss": 0.827212085746597,
+      "val_acc": 0.7069684335914235,
+      "val_macro_f1": 0.46635168892045575,
+      "time_s": 100.6
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.665705858787214,
+      "val_loss": 0.9031451153854588,
+      "val_acc": 0.6956521739130435,
+      "val_macro_f1": 0.4622291648787021,
+      "time_s": 101.9
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.6346823808133826,
+      "val_loss": 0.8314225638175451,
+      "val_acc": 0.6998213222156046,
+      "val_macro_f1": 0.5394214071834236,
+      "time_s": 100.8
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.5956756856443027,
+      "val_loss": 0.7912406579520889,
+      "val_acc": 0.711733174508636,
+      "val_macro_f1": 0.5345762268745036,
+      "time_s": 99.5
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.5721658483703359,
+      "val_loss": 0.7043040844924113,
+      "val_acc": 0.7456819535437761,
+      "val_macro_f1": 0.562680729296415,
+      "time_s": 102.3
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.529511436340757,
+      "val_loss": 0.7258063805216902,
+      "val_acc": 0.7450863609291245,
+      "val_macro_f1": 0.6028156562426459,
+      "time_s": 97.5
+    },
+    {
+      "epoch": 11,
+      "train_loss": 0.5014456000848464,
+      "val_loss": 0.7355283233400893,
+      "val_acc": 0.741512805241215,
+      "val_macro_f1": 0.5569469268699521,
+      "time_s": 96.6
+    },
+    {
+      "epoch": 12,
+      "train_loss": 0.46521978763134464,
+      "val_loss": 0.733083123089374,
+      "val_acc": 0.7403216200119118,
+      "val_macro_f1": 0.5905984006892107,
+      "time_s": 96.3
+    },
+    {
+      "epoch": 13,
+      "train_loss": 0.4272632954849896,
+      "val_loss": 0.7168841787290545,
+      "val_acc": 0.7558070279928529,
+      "val_macro_f1": 0.5863313469330417,
+      "time_s": 95.9
+    },
+    {
+      "epoch": 14,
+      "train_loss": 0.3998745695011847,
+      "val_loss": 0.709311917024826,
+      "val_acc": 0.7748659916617034,
+      "val_macro_f1": 0.5761944088576518,
+      "time_s": 94.5
+    }
+  ]
+}
