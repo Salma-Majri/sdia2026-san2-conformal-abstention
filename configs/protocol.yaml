@@ -1,0 +1,167 @@
+# =====================================================================
+# SAN-2 - Protocole experimental 
+# Statut  : FIGE sauf sigma_levels (a remplir apres le pilote sur val)
+# Question : la prediction conforme tient-elle sa garantie de couverture
+# sous changement de centre (FedISIC2019), et quel taux d'abstention
+# faut-il payer pour la retablir ?
+# =====================================================================
+
+dataset:
+  name: flwrlabs/fed-isic2019
+  hf_split: train            # on n'utilise PAS le split HF "test" (4650 images)
+  revision: d1457caea44f57dfe855bcf67e2ec09bb06781e9
+  n_images: 18597
+  n_classes: 8
+  center_counts: {0: 9930, 1: 3163, 2: 2691, 3: 1807, 4: 655, 5: 351}
+
+splits:
+  main_ood_center: 3         # centre non vu a l'entrainement
+  seed: 0                    # seed des splits (fixe pour tous les runs)
+  file: data/splits/splits_ood3_seed0.json
+  source_centers:            # centres 0,1,2,4,5
+    train: 0.65
+    val: 0.10
+    calib: 0.15
+    test_id: 0.10
+  ood_center:                # centre 3
+    ood_calib_pool: 0.20
+    test_ood: 0.80
+  stratification:
+    ood_center: label
+    source_first_split: centre_label   # strates rares fusionnees
+    source_other_splits: label         # repli observe a l'execution
+  realized_sizes:
+    train: 10913
+    val: 1679
+    calib: 2518
+    test_id: 1680
+    ood_calib_pool: 361
+    test_ood: 1446
+
+known_limits:
+  - "Classes rares (5, 6) : tres peu d'echantillons dans calib, test_id et test_ood."
+  - "ood_calib_pool : classe 6 = 1 image, classe 5 = 4, classe 3 = 17, classe 7 = 29."
+  - "Conformal par classe impossible sur ood_calib_pool : repli sur quantile global."
+  - "Metriques par classe pour les classes 5 et 6 sur test_ood : indicatives seulement."
+  - "Prevalence shift par reechantillonnage avec remise : les classes rares de test_id (5 : 16, 6 : 20 images) sont dupliquees, variance elevee."
+  - "Sous-population par centre : centres 4 et 5 peu representes dans test_id, intervalles larges."
+
+seeds:
+  training: [0, 1, 2]        # 3 seeds minimum, rapport moyenne +- ecart-type
+  # les splits restent fixes (seed 0) ; seuls entrainement, MC-Dropout
+  # et ensembles varient avec la seed d'entrainement
+
+usage:
+  train: entrainement du modele
+  val: early stopping, choix d'hyperparametres, temperature scaling, pilote du bruit
+  calib: calibration conforme ID
+  test_id: evaluation ID, utilise une seule fois
+  ood_calib_pool: calibration conforme avec quelques exemples OOD
+  test_ood: evaluation OOD, utilise une seule fois
+  rule: "Aucun reglage d'hyperparametre sur test_id ni test_ood."
+  shifts_rule: "Tous les decalages (bruit, sous-population, prevalence) sont calcules a partir du meme run final, sans re-entrainement ni recalibration."
+
+model:
+  backbone: resnet50
+  pretrained: imagenet
+  dropout: 0.3               # avant la couche finale, sert aussi au MC-Dropout
+  image_size: 224
+  normalization: imagenet
+
+training:
+  optimizer: adamw
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  batch_size: 64
+  max_epochs: 30
+  scheduler: cosine
+  loss: cross_entropy
+  class_weighting: false     # baseline simple ; variante avec poids en ablation
+  augmentation_train: [random_resized_crop, horizontal_flip, vertical_flip, color_jitter_light]
+  augmentation_eval: [resize, center_crop]
+  early_stopping:
+    monitor: val_loss
+    patience: 5
+  mixed_precision: true
+
+methods:
+  baseline: "split conformal marginal (LAC), calibre sur calib (ID)"
+  mc_dropout:
+    n_passes: 20
+  ensemble:
+    size: 3                  # 3 modeles, un par seed d'entrainement
+  temperature_scaling: true  # ajuste sur val
+
+conformal:
+  alpha_main: 0.10           # couverture cible 90 % : tous les resultats et ablations
+  alpha_sensitivity: [0.05, 0.20]   # sensibilite uniquement (95 % et 80 %)
+  scores: [lac, aps]
+  conditioning: [marginal, class_conditional]
+  class_conditional_min_samples: 20   # sinon repli sur quantile global
+  calibration_sources:
+    id: calib
+    ood_few_shot: ood_calib_pool
+    mixed: calib + ood_calib_pool
+  abstention:
+    rule: "abstention si taille de l'ensemble de prediction != 1"
+    selective_threshold_grid: 50
+
+shift_simulation:            # decalages controles en plus du changement de centre
+  acquisition_noise:
+    type: gaussian
+    applied_to: test_id      # le centre OOD est deja un decalage reel
+    unit: "ecart-type sur l'image en [0,1], AVANT normalisation ImageNet"
+    noise_seed: "derivee de l'indice de l'image (bruit deterministe, identique pour toutes les methodes)"
+    pilot:
+      split: val
+      sigma_grid: [0.005, 0.01, 0.02, 0.03, 0.05, 0.08]
+      model: "modele entraine, seed 0"
+    selection_rule: "pour chaque niveau, prendre le sigma de la grille dont la chute d'accuracy sur val est la plus proche de la cible"
+    target_accuracy_drop_points: {leger: 2, moyen: 5, fort: 10}
+    sigma_levels: null       # TODO: remplir apres le pilote, puis commiter AVANT toute evaluation test
+
+  subpopulation:
+    applied_to: test_id
+    method: "evaluation conditionnelle au sous-groupe (pas de reechantillonnage), calibration inchangee"
+    by_center:
+      groups: [0, 1, 2, 4, 5]
+      rare_centers: [4, 5]   # < 5 % de train
+    by_class:
+      rare_classes: [3, 5, 6, 7]   # < 5 % de calib
+    min_samples_report: 30   # en dessous : resultat marque "indicatif"
+    report: [coverage, mean_set_size, singleton_rate]
+
+  prevalence_shift:
+    applied_to: test_id
+    method: "reechantillonnage pondere avec remise de test_id"
+    scenarios:
+      uniform: "prevalence egale pour les 8 classes"
+      inverse: "probabilite proportionnelle a 1 / prevalence dans calib"
+      rare_boost: "poids x5 sur les classes rares [3, 5, 6, 7], puis renormalisation"
+    n_draws: 200
+    draw_size: 1680          # = taille de test_id
+    resampling_seed: 0       # tirage i : seed = 0 + i
+    calibration: "inchangee (calib ID) ; marginal et class_conditional compares"
+    report: "moyenne et ecart-type sur les tirages et sur les seeds d'entrainement"
+
+metrics:
+  - empirical_coverage
+  - mean_set_size
+  - singleton_rate
+  - selective_risk
+  - risk_coverage_curve
+  - ece
+  - coverage_per_class
+  - accuracy_macro_f1
+
+ablations:
+  - sans_temperature_scaling
+  - lac_vs_aps
+  - marginal_vs_class_conditional
+  - calibration_id_vs_ood_vs_mixed
+  - taille_ood_calib_pool: [0, 50, 100, 361]
+  - avec_vs_sans_class_weighting
+
+compute:
+  hardware: Colab T4
+  determinism: "torch.manual_seed, numpy seed, cudnn.deterministic=True"
