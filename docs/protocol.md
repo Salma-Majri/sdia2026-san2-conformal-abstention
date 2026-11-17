@@ -1,7 +1,7 @@
 # Protocole expérimental SAN-2
 
-**Version** : v1.0 (`sigma_levels` en attente du pilote)
-**Statut** : figé sauf `sigma_levels`, à remplir après le pilote sur val (passage en v1.1)
+**Version** : v1.1
+**Statut** : figé (v1.1)
 **Source de vérité** : `configs/protocol.yaml`. Ce document l'explique ; en cas de divergence, le YAML fait foi.
 
 ## 1. Question de recherche
@@ -64,7 +64,8 @@ Le centre 3 est déjà un décalage réel. Trois décalages contrôlés s'y ajou
 ### 6.1 Bruit d'acquisition
 - Bruit gaussien appliqué à `test_id`, écart-type σ exprimé sur l'image en [0, 1], avant normalisation ImageNet.
 - Bruit déterministe (graine dérivée de l'indice de l'image), identique pour toutes les méthodes.
-- **Pilote sur val** avec le modèle de seed 0, grille σ ∈ {0.005, 0.01, 0.02, 0.03, 0.05, 0.08}.
+- **Pilote sur val** avec le modèle de seed 0,  grille σ ∈ {0.002, 0.004, 0.006, 0.008, 0.010, 0.0125, 0.015, 0.0175, 0.020, 0.030}.
+- Le pilote a sélectionné les niveaux suivants : léger = 0.01 (chute de 2.68 pts), moyen = 0.0125 (chute de 5.06 pts), fort = 0.02 (chute de 10.13 pts).
 - Règle : pour chaque niveau (léger, moyen, fort), choisir le σ de la grille dont la chute d'accuracy sur val est la plus proche de 2, 5 et 10 points.
 - `sigma_levels` est rempli et commité (v1.1) **avant** toute lecture de test_id.
 

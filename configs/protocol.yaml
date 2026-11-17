@@ -1,6 +1,6 @@
 # =====================================================================
 # SAN-2 - Protocole experimental 
-# Statut  : FIGE sauf sigma_levels (a remplir apres le pilote sur val)
+#  Statut : FIGE (v1.1)
 # Question : la prediction conforme tient-elle sa garantie de couverture
 # sous changement de centre (FedISIC2019), et quel taux d'abstention
 # faut-il payer pour la retablir ?
@@ -114,11 +114,14 @@ shift_simulation:            # decalages controles en plus du changement de cent
     noise_seed: "derivee de l'indice de l'image (bruit deterministe, identique pour toutes les methodes)"
     pilot:
       split: val
-      sigma_grid: [0.005, 0.01, 0.02, 0.03, 0.05, 0.08]
+      sigma_grid: [0.002, 0.004, 0.006, 0.008, 0.010, 0.0125, 0.015, 0.0175, 0.020, 0.030]
       model: "modele entraine, seed 0"
     selection_rule: "pour chaque niveau, prendre le sigma de la grille dont la chute d'accuracy sur val est la plus proche de la cible"
     target_accuracy_drop_points: {leger: 2, moyen: 5, fort: 10}
-    sigma_levels: null       # TODO: remplir apres le pilote, puis commiter AVANT toute evaluation test
+    sigma_levels:
+      leger: 0.01
+      moyen: 0.0125
+      fort: 0.02
 
   subpopulation:
     applied_to: test_id
