@@ -5,25 +5,52 @@ Projet de fin de module, IA avancée (Master SDIA, ENSET Mohammedia, 2026-2027).
 ## Question de recherche
 
 La prédiction conforme tient-elle sa garantie de couverture sur une tâche de diagnostic
-lorsque la distribution de test change (nouveau centre d'acquisition, sous-population rare),
-et quel taux d'abstention faut-il payer pour la rétablir ?
+lorsque la distribution de test change (nouveau centre d'acquisition, bruit d'acquisition,
+sous-population rare, déséquilibre de prévalence), et quel taux d'abstention faut-il payer
+pour la rétablir ?
 
 ## Données
 
-FED-ISIC 2019 (dermoscopie, 8 classes, 6 centres). Les images ne sont pas redistribuées
-dans ce dépôt (licence ISIC) : elles sont téléchargées par `data/download.py`.
+FED-ISIC 2019 (`flwrlabs/fed-isic2019`, Hugging Face), 18 597 images dermoscopiques,
+8 classes, 6 centres. Seul le split HF `train` est utilisé. Les images ne sont pas
+redistribuées dans ce dépôt (licence ISIC) : elles sont téléchargées par script, à une
+révision figée dans `configs/protocol.yaml`.
+
+Centre OOD principal : **3** (jamais vu à l'entraînement). L'entraînement est centralisé :
+le caractère multi-centres du jeu sert à créer un décalage de domaine réel.
+
+| Split | Origine | Taille | Usage |
+|---|---|---|---|
+| train | centres 0, 1, 2, 4, 5 | 10 913 | entraînement |
+| val | centres sources | 1 679 | early stopping, réglages, pilote du bruit |
+| calib | centres sources | 2 518 | calibration conforme ID |
+| test_id | centres sources | 1 680 | évaluation ID (une seule fois) |
+| ood_calib_pool | centre 3 | 361 | calibration conforme OOD |
+| test_ood | centre 3 | 1 446 | évaluation OOD (une seule fois) |
+
+## Protocole
+
+Figé avant les résultats : voir [`configs/protocol.yaml`](configs/protocol.yaml) et
+[`docs/protocol.md`](docs/protocol.md). Version courante : **v1.1** (tag `protocol-v1.1`),
+`sigma_levels` fixés après le pilote sur val. Modèle : ResNet-50 pré-entraîné ImageNet,
+seeds d'entraînement 0, 1, 2, seed des splits 0.
 
 ## Structure du dépôt
 
 ```
-configs/protocol.yaml     protocole figé
-data/download.py          téléchargement des données
-data/splits/              indices des splits (versionnés)
-src/                      code source (splits, dataset, entraînement, conforme...)
-scripts/                  pilote du bruit, figures, relance de l'expérience
-notebooks/                analyse des erreurs
-docs/                     notes et protocole
-outputs/                  logits, résultats, figures (non versionnés sauf results/figures)
+configs/protocol.yaml        protocole figé
+docs/protocol.md             protocole expliqué
+data/download.py             téléchargement des données
+data/splits/                 indices des splits (JSON versionnés)
+src/splits.py                génération des splits
+src/utils.py                 config, seeds, chargement du dataset, des splits, du modèle
+src/dataset.py               Dataset PyTorch (bruit gaussien optionnel, déterministe par image)
+src/train.py                 entraînement
+src/extract_logits.py        extraction des logits par split
+src/pilot_noise.py           pilote du bruit sur val
+notebooks/                   analyse des erreurs
+checkpoints/                 modèles entraînés (non versionnés)
+outputs/                     logits, résultats, figures (non versionnés, sauf résultats du pilote)
 ```
 
 ## Installation
@@ -36,24 +63,44 @@ pip install -r requirements.txt
 
 ## Reproduire
 
-À compléter : une commande unique relancera l'expérience principale (`bash run_all.sh`).
+Étapes déjà disponibles (GPU recommandé pour l'entraînement) :
+
+```bash
+python src/splits.py --main_ood_center 3 --seed 0 --out data/splits/splits_ood3_seed0.json
+python src/train.py --seed 0                    # puis --seed 1 et --seed 2
+python src/extract_logits.py --seed 0           # puis --seed 1 et --seed 2
+python src/pilot_noise.py --seed 0                 # pilote du bruit sur val (seed 0)
+python src/extract_logits.py --seed 0 --splits test_id --noise_sigma 0.01   # puis 0.0125, 0.02 ; seeds 1 et 2
+```
+
+Le pilote a sélectionné les sigmas suivants : léger=0.01, moyen=0.0125, fort=0.02 (voir outputs/results/pilot_noise_seed0.json)
+
+Les checkpoints et les logits ne sont pas versionnés : ils se régénèrent avec ces commandes.
+L'entraînement a été exécuté sur Google Colab (GPU T4).
+
+Expérience principale (commande unique, à venir) :
+
+```bash
+bash run_all.sh
+```
 
 ## État d'avancement
 
 - [x] Structure du projet
-- [ ] Splits
-- [ ] Protocole figé (sigma_levels fixés après le pilote)
-- [ ] Dataset et entraînement (seeds 0, 1, 2)
-- [ ] Extraction des logits
+- [x] Splits
+- [x] Protocole figé (sigma_levels fixés après le pilote)
+- [x] Dataset et entraînement (seeds 0, 1, 2)
+- [x] Extraction des logits (sans bruit)
+- [x] Pilote du bruit (sigma) sur val
+- [x] Extraction des logits avec bruit (test_id, sigmas figés)
 - [ ] Métriques
-- [ ] Pilote du bruit (sigma) sur val
 - [ ] Temperature scaling
 - [ ] Prédiction conforme (LAC, APS, marginale, par classe)
 - [ ] Expérience principale : ID, bruit d'acquisition, nouveau centre
 - [ ] Décalage : sous-population rare
 - [ ] Décalage : déséquilibre de prévalence
-- [ ] MC-Dropout
-- [ ] Ensembles
+- [ ] MC-Dropout (en cours : Fatima Zahra)
+- [ ] Ensembles (en cours : Fatima Zahra)
 - [ ] Ablations
 - [ ] Analyse des erreurs et figures
 - [ ] Article
