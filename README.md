@@ -48,9 +48,14 @@ src/dataset.py               Dataset PyTorch (bruit gaussien optionnel, détermi
 src/train.py                 entraînement
 src/extract_logits.py        extraction des logits par split
 src/pilot_noise.py           pilote du bruit sur val
+src/metrics.py               métriques (accuracy, F1, NLL, ECE) et temperature scaling (val)
+src/conformal.py             prédiction conforme : LAC, APS, marginale / par classe, sources de calibration
+src/shifts.py                décalages : sous-population rare, déséquilibre de prévalence
+src/run_conformal.py         expériences conformes (modes smoke et final)
+scripts/make_figures.py      figures
 notebooks/                   analyse des erreurs
 checkpoints/                 modèles entraînés (non versionnés)
-outputs/                     logits, résultats, figures (non versionnés, sauf résultats du pilote)
+outputs/                     logits, figures (non versionnés) ; résultats versionnés : pilote, métriques, final_conformal.json
 ```
 
 ## Installation
@@ -75,10 +80,28 @@ python src/extract_logits.py --seed 0 --splits test_id --noise_sigma 0.01   # pu
 
 Le pilote a sélectionné les sigmas suivants : léger=0.01, moyen=0.0125, fort=0.02 (voir outputs/results/pilot_noise_seed0.json)
 
+Métriques et temperature scaling (ajusté sur val, un T par seed) :
+
+```bash
+python src/metrics.py
+```
+
+Prédiction conforme. Le mode `smoke` calibre sur `calib` et évalue sur `val` (aucun jeu de test lu) ;
+le mode `final` lit `test_id` et `test_ood` **une seule fois** (il refuse de tourner si le fichier de
+sortie existe, si l'arbre git n'est pas propre ou si `sigma_levels` est null) :
+
+```bash
+python src/run_conformal.py --mode smoke
+python src/run_conformal.py --mode final        # une seule exécution : résultats dans outputs/results/final_conformal.json
+```
+
+Le run final calcule dans la même exécution : ID, bruit d'acquisition, nouveau centre (3 sources de
+calibration, alpha 0.10 / 0.05 / 0.20), puis les décalages de sous-population et de prévalence sur `test_id`.
+
 Les checkpoints et les logits ne sont pas versionnés : ils se régénèrent avec ces commandes.
 L'entraînement a été exécuté sur Google Colab (GPU T4).
 
-Expérience principale (commande unique, à venir) :
+Expérience complète (commande unique, à venir) :
 
 ```bash
 bash run_all.sh
@@ -93,14 +116,14 @@ bash run_all.sh
 - [x] Extraction des logits (sans bruit)
 - [x] Pilote du bruit (sigma) sur val
 - [x] Extraction des logits avec bruit (test_id, sigmas figés)
-- [ ] Métriques
-- [ ] Temperature scaling
-- [ ] Prédiction conforme (LAC, APS, marginale, par classe)
-- [ ] Expérience principale : ID, bruit d'acquisition, nouveau centre
-- [ ] Décalage : sous-population rare
-- [ ] Décalage : déséquilibre de prévalence
-- [ ] MC-Dropout (en cours : Fatima Zahra)
-- [ ] Ensembles (en cours : Fatima Zahra)
+- [x] Métriques
+- [x] Temperature scaling
+- [x] Prédiction conforme (LAC, APS, marginale, par classe)
+- [x] Expérience principale : ID, bruit d'acquisition, nouveau centre
+- [x] Décalage : sous-population rare & déséquilibre de prévalence
+- [x] Ablations conformes
+- [ ] MC-Dropout
+- [ ] Ensembles
 - [ ] Ablations
 - [ ] Analyse des erreurs et figures
 - [ ] Article
