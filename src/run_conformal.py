@@ -38,6 +38,7 @@ import numpy as np
 from conformal import (LOGITS_DIR, build_calibration_set, calibrate, load_probs,
                        load_temperature, predict_sets)
 from metrics import evaluate_probs, evaluate_sets
+from shifts import load_centers, run_shifts
 from utils import ROOT, ensure_dir, load_config
 
 MC_DIR = ROOT / "outputs" / "mcdropout"
@@ -99,7 +100,8 @@ def sigma_values(cfg):
 # ----------------------------------------------------------------------
 # Un run = une methode, une seed
 # ----------------------------------------------------------------------
-def run_one(method, seed, eval_specs, sources, n_ood_list, alphas, cfg, use_ts):
+def run_one(method, seed, eval_specs, sources, n_ood_list, alphas, cfg, use_ts,
+            shift_split=None):
     K = cfg["dataset"]["n_classes"]
     ccfg = cfg["conformal"]
     min_samples = ccfg["class_conditional_min_samples"]
@@ -129,7 +131,15 @@ def run_one(method, seed, eval_specs, sources, n_ood_list, alphas, cfg, use_ts):
                                  "score": score, "conditioning": cond, "source": source,
                                  "n_ood": n_ood, "alpha": alpha, "n_cal": cal.n_cal,
                                  "fallback_classes": int(cal.fallback.sum()), **m})
-    return rows, prob_rows
+
+    shift_out = ([], [])
+    if shift_split is not None and (shift_split, None) in data:
+        p, y = data[(shift_split, None)]
+        centers = load_centers(cfg, shift_split)
+        assert len(centers) == len(y), "centres et labels de tailles differentes"
+        shift_out = run_shifts(method, seed, p, y, centers, cal_id, cfg, ccfg["scores"],
+                               ccfg["conditioning"], ccfg["alpha_main"], shift_split)
+    return rows, prob_rows, shift_out
 
 
 def _mean(vals):
@@ -218,6 +228,52 @@ def summarize_per_class(rows, alpha_main, K=8, min_n=30):
         print(f"  {name:19s} " + " ".join(f"{n:6d}" for n in g[0]["n_per_class"]))
 
 
+def summarize_subpopulation(sub_rows, split):
+    """Couverture et taille par sous-groupe, 4 configurations en colonnes. '*' = moins de 30 images."""
+    if not sub_rows:
+        return
+    cfgs = sorted({(r["score"], r["conditioning"]) for r in sub_rows})
+    short = {"marginal": "marg", "class_conditional": "cls"}
+    for title, key in (("Couverture", "coverage"), ("Taille moyenne des ensembles", "mean_set_size"),
+                       ("Taux de singletons", "singleton_rate")):
+        print(f"\nSous-population rare sur {split} : {title} (moyenne sur les seeds ; * = moins de 30 images)")
+        print(f"{'groupe':16s} {'n':>5s} " + " ".join(f"{(c[0] + ' ' + short[c[1]]):>10s}" for c in cfgs))
+        groups = []
+        for r in sub_rows:
+            if r["group"] not in groups:
+                groups.append(r["group"])
+        for g in groups:
+            rs = [r for r in sub_rows if r["group"] == g]
+            cells = []
+            for c in cfgs:
+                v = [r[key] for r in rs if (r["score"], r["conditioning"]) == c]
+                cells.append(f"{_mean(v):9.3f}" + ("*" if rs[0]["indicatif"] else " "))
+            print(f"{g:16s} {rs[0]['n']:5d} " + " ".join(cells))
+
+
+def _pooled(rows, m):
+    """Moyenne et ecart-type sur tirages ET seeds : var totale = moyenne des var + var des moyennes."""
+    means = np.array([r[f"{m}_mean"] for r in rows])
+    stds = np.array([r[f"{m}_std"] for r in rows])
+    return float(np.nanmean(means)), float(np.sqrt(np.nanmean(stds ** 2) + np.nanvar(means)))
+
+
+def summarize_prevalence(prev_rows, split):
+    if not prev_rows:
+        return
+    print(f"\nDeséquilibre de prevalence sur {split} (calibration ID inchangee ; moyenne +- ecart-type "
+          f"sur les tirages et les seeds ; {prev_rows[0]['n_draws']} tirages de {prev_rows[0]['draw_size']})")
+    print(f"{'scenario':11s} {'score':5s} {'conditionnement':17s} {'couverture':>15s} {'taille':>6s} "
+          f"{'singl':>6s} {'risque_sel':>10s}")
+    keys = sorted({(r["scenario"], r["score"], r["conditioning"]) for r in prev_rows})
+    for k in keys:
+        rs = [r for r in prev_rows if (r["scenario"], r["score"], r["conditioning"]) == k]
+        cm, cs = _pooled(rs, "coverage")
+        print(f"{k[0]:11s} {k[1]:5s} {k[2]:17s} {cm:8.3f} +- {cs:4.3f} "
+              f"{_pooled(rs, 'mean_set_size')[0]:6.2f} {_pooled(rs, 'singleton_rate')[0]:6.3f} "
+              f"{_pooled(rs, 'selective_risk')[0]:10.3f}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/protocol.yaml")
@@ -229,6 +285,8 @@ def main():
     ap.add_argument("--n_ood", type=int, nargs="+", default=None,
                     help="tailles du pool OOD (ablation) ; defaut : pool complet")
     ap.add_argument("--tag", default="", help="suffixe du fichier de sortie")
+    ap.add_argument("--no_shifts", action="store_true",
+                    help="ne pas calculer sous-population et prevalence")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -249,6 +307,7 @@ def main():
 
     if args.mode == "smoke":
         eval_specs = [("val", None)]
+        shift_split = None if args.no_shifts else "val"      # test du code sur val
         sources = ["id"]
         alphas = [ccfg["alpha_main"]]
         if args.n_ood or args.methods != ["single"]:
@@ -265,23 +324,28 @@ def main():
         if dirty:
             sys.exit("L'arbre git a des modifications non commitees : commite (git status doit etre propre).")
         eval_specs = [("test_id", None)] + [("test_id", s) for s in sig] + [("test_ood", None)]
+        shift_split = None if args.no_shifts else "test_id"
         sources = list(ccfg["calibration_sources"].keys())
         alphas = [ccfg["alpha_main"]] + list(ccfg["alpha_sensitivity"])
 
     n_ood_list = args.n_ood or [None]
-    all_rows, all_prob = [], []
+    all_rows, all_prob, all_sub, all_prev = [], [], [], []
     for method in args.methods:
         run_seeds = [None] if method == "ensemble" else seeds
         for seed in run_seeds:
             print(f"[{args.mode}] methode={method} seed={seed} ...")
-            rows, prob_rows = run_one(method, seed, eval_specs, sources, n_ood_list, alphas, cfg, use_ts)
+            rows, prob_rows, (sub_rows, prev_rows) = run_one(
+                method, seed, eval_specs, sources, n_ood_list, alphas, cfg, use_ts, shift_split)
             all_rows += rows
             all_prob += prob_rows
+            all_sub += sub_rows
+            all_prev += prev_rows
 
     out = {"mode": args.mode, "git_commit": commit, "git_dirty": dirty, "temperature_scaling": use_ts,
            "methods": args.methods, "seeds": seeds, "alphas": alphas, "n_ood": args.n_ood,
            "protocol_revision": cfg["dataset"].get("revision"),
-           "probs_metrics": all_prob, "conformal": all_rows}
+           "shift_split": shift_split, "probs_metrics": all_prob, "conformal": all_rows,
+           "subpopulation": all_sub, "prevalence_shift": all_prev}
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
 
@@ -289,6 +353,8 @@ def main():
     for a in alphas:
         summarize(all_rows, a)
     summarize_per_class(all_rows, ccfg["alpha_main"], cfg["dataset"]["n_classes"])
+    summarize_subpopulation(all_sub, shift_split)
+    summarize_prevalence(all_prev, shift_split)
     print(f"\nResultats : {out_path}")
 
 
