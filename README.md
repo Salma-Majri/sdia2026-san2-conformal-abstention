@@ -120,8 +120,8 @@ bash run_all.sh
 - [x] Temperature scaling
 - [x] Prédiction conforme (LAC, APS, marginale, par classe)
 - [x] Expérience principale : ID, bruit d'acquisition, nouveau centre
-- [x] Décalage : sous-population rare
-- [x] Décalage : déséquilibre de prévalence
+- [x] Décalage : sous-population rare & déséquilibre de prévalence
+- [x] Ablations conformes
 - [ ] MC-Dropout
 - [ ] Ensembles
 - [ ] Ablations
