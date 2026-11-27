@@ -2,7 +2,7 @@
 ensembles.py - Moyenne des softmax des 3 seeds (sans réentraînement).
 À partir des logits fournis dans outputs/logits/.
 Sortie : outputs/ensembles/ensemble_{split}[_sigma{s}].npy
-Format : probabilités [N, 8] brutes (somme = 1), PAS de temperature scaling.
+Note : PAS de seed dans le nom de fichier (car moyenne des 3 seeds).
 Conforme aux specs de run_conformal.py (Salma).
 """
 import argparse
@@ -46,13 +46,13 @@ def build_ensemble(split, sigma=None, seeds=(0, 1, 2)):
     
     ensemble_probs = np.mean(all_probs, axis=0)
     
-    # Vérification
+    # Vérifications strictes (comme dans run_conformal.py)
     assert ensemble_probs.shape[1] == 8, \
         f"Shape inattendu : {ensemble_probs.shape} (attendu [N, 8])"
     assert np.allclose(ensemble_probs.sum(axis=1), 1.0, atol=1e-3), \
         "Les probabilités de l'ensemble ne somment pas à 1"
     
-    # Sauvegarde
+    # Sauvegarde (PAS de seed dans le nom !)
     ENS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = ENS_DIR / f"ensemble_{split}{sigma_suffix}.npy"
     np.save(out_path, ensemble_probs)
